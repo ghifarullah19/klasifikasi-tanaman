@@ -1,0 +1,15 @@
+{% extends 'base.html' %}
+
+{% block title %} Home {% endblock %}
+
+{% block content %}
+  <div class="col-sm-8 mx-auto">
+    <form id="uploadForm">
+      <div class="form-group">
+        <label for="image">Choose an image</label>
+        <input type="file" class="form-control-file" id="image" name="image">
+      </div>
+      <button type="button" id="submit" class="btn btn-primary">Submit</button>
+    </form>
+  </div>
+{% endblock %}
