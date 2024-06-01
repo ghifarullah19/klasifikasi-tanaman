@@ -1,43 +1,79 @@
-from keras.preprocessing.image import img_to_array
-from keras.models import load_model
-import numpy as np
-import pickle
-import cv2
 from flask import Flask, request, jsonify, render_template
+import numpy as np
+import cv2
+import json
+import requests
+from keras.preprocessing.image import img_to_array
+from PIL import Image
+import io
 
 app = Flask(__name__)
+
+# Ganti dengan API key dan URL deployment Anda
+API_KEY = "<apikey>"
+SCORING_URL = "<endpoint>"
+
+# Class names sesuai dengan model Anda
+class_names = ['Dahlia', 'Dieffenbacia', 'Daisy', 'Lily Flower', 'Orchid', 'Azalea', 'Iris', 'Ixora', 'Sage', 'Tuberose', 'Jasmine', 'Bergamot', 'Aster', 'Gerbera', 'Lavender', 'Eustoma', 'Dandelion', 'Cosmos', 'Euphorbia', 'Viola', 'Peony', 'Snapdragon', 'Tulip', 'Alyssum', 'Rose', 'Polyanthus', 'Pansy', 'Sunflower', 'Aglaonema']
+class_names.sort()
+
+def get_token():
+    url = "https://iam.cloud.ibm.com/identity/token"
+    headers = {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Accept": "application/json"
+    }
+    data = f"grant_type=urn:ibm:params:oauth:grant-type:apikey&apikey={API_KEY}"
+    response = requests.post(url, headers=headers, data=data)
+    response.raise_for_status()
+    return response.json()["access_token"]
+
+def api_post(scoring_url, token, payload):
+    headers = {
+        "Accept": "application/json",
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json;charset=UTF-8"
+    }
+    response = requests.post(scoring_url, headers=headers, data=payload)
+    response.raise_for_status()
+    return response.json()
+
+def preprocess_image(image, target_size):
+    if image.mode != "RGB":
+        image = image.convert("RGB")
+    image = image.resize(target_size)
+    image = np.array(image)
+    image = image.astype("float32") / 255.0
+    image = np.expand_dims(image, axis=0)
+    return image.tolist()
 
 @app.route('/detect', methods=['POST'])
 def detect():
     if request.method == 'POST':
-        # Load model
-        MODEL_PATH = "myvgg16_model.h5"
-        # Load pickle (ini adalah nama class atau label yang digunakan)
-        PICKLE_PATH = "class_names.pkl"
-
-        # Isi dari class_names.pkl: 
-        # class_names = ['Aster', 'Euphorbia', 'Bergamot', 'Sage', 'Azalea', 'Peony', 'Pansy', 'Orchid', 'Dandelion', 'Cosmos', 'Snapdragon', 'Polyanthus', 'Dahlia', 'Gerbera', 'Ixora', 'Eustoma', 'Daisy', 'Aglaonema', 'Sunflower', 'Viola', 'Lily Flower', 'Rose', 'Iris', 'Tuberose', 'Alyssum', 'Dieffenbacia', 'Jasmine', 'Lavender', 'Tulip']
-
         filestr = request.files['image'].read()
-        npimg = np.fromstring(filestr, np.uint8)
-        image = cv2.imdecode(npimg, cv2.IMREAD_COLOR)
+        image = Image.open(io.BytesIO(filestr))
 
-        # pre-process the image for classification
-        image = cv2.resize(image, (224, 224))
-        image = image.astype("float") / 255.0
-        image = img_to_array(image)
-        image = np.expand_dims(image, axis=0)
+        # Preprocess the image for classification
+        processed_image = preprocess_image(image, target_size=(224, 224))
 
-        # load the trained CNN and the label binarizer
-        print("[INFO] loading network...")
-        model = load_model(MODEL_PATH)
-        lb = pickle.loads(open(PICKLE_PATH, "rb").read())
+        # Get the token
+        token = get_token()
 
-        # classify the input image
-        print("[INFO] classifying image...")
-        proba = model.predict(image)[0]
+        # Create payload
+        payload = json.dumps({
+            "input_data": [{
+                "fields": ["image"],
+                "values": processed_image
+            }]
+        })
+
+        # Call the IBM Cloud API
+        prediction = api_post(SCORING_URL, token, payload)
+        
+        # Extract the prediction results
+        proba = prediction["predictions"][0]["values"][0]
         idx = np.argmax(proba)
-        label = lb[idx]
+        label = class_names[idx]
 
         return jsonify(success=1, label=label, percent=(proba[idx] * 100))
     
